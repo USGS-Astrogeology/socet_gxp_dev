@@ -119,6 +119,7 @@ else:
     argparse.parser.print_usage()
     sys.exit(1)
     
+	
 if target == "mars":
     targetWKT = "Mars"
     majorRadius = 3396190.0 
@@ -162,15 +163,17 @@ else:
     sys.exit(1)
     
 #based on target and radius write out projection
+#
+#New prj for GXP
+#GEOGCS["GCS_Mars_2000",DATUM["D_Mars_2000",SPHEROID["Mars_2000_IAU_IAG",3396190.0,169.8944472]],PRIMEM["Reference_Meridian",0.0],UNIT["Degree",0.0174532925199433]],VERTCS["Mars_2000",DATUM["D_Mars_2000",SPHEROID["Mars_2000_IAU_IAG",3396190.0,169.8944472]],PARAMETER["Vertical_Shift",0.0],PARAMETER["Direction",1.0],UNIT["Meter",1.0]]
+#
 if majorRadius - minorRadius > 0.00001:
     ecc = majorRadius / (majorRadius - minorRadius)
-    thePrj = 'GEOGCS["{0}{1}",DATUM["D_{0}{1}",SPHEROID["{0}{1}_IAU",{2:.1f},{3:.14f}]],PRIMEM["Reference_Meridian",0.0],UNIT["Degree",0.0174532925199433]]' \
-             .format(targetWKT,year,majorRadius,ecc)
 else:
     ecc = 0.0
-    thePrj = 'GEOGCS["{0}{1}",DATUM["D_{0}{1}",SPHEROID["{0}{1}_IAU",{2:.1f},{3:.1f}]],PRIMEM["Reference_Meridian",0.0],UNIT["Degree",0.0174532925199433]]' \
+thePrj = 'GEOGCS["GCS_{0}_{1}",DATUM["D_{0}_{1}",SPHEROID["{0}_{1}_IAU",{2:.1f},{3:.14f}]],PRIMEM["Reference_Meridian",0.0],UNIT["Degree",0.0174532925199433]],VERTCS["Mars_2000",DATUM["D_{0}_{1}",SPHEROID["{0}_{1}_IAU",{2:.1f},{3:.14f}]],PARAMETER["Vertical_Shift",0.0],PARAMETER["Direction",1.0],UNIT["Meter",1.0]]' \
              .format(targetWKT,year,majorRadius,ecc)
-                 
+
 #loop over files, if the user passed --input then just one file
 for input in files:
     filename = os.path.basename(input)
