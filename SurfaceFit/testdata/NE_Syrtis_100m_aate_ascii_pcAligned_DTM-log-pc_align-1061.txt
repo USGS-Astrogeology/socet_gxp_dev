@@ -1,0 +1,128 @@
+/scratch/dpmayer/ASP/ASP_latest/libexec/pc_align --max-displacement 300 --datum D_MARS -o NE_Syrtis_100m_aate_ascii_pcAligned_DTM --save-inv-trans NE_Syrtis_100m_aate_ascii.csv NE_Syrtis_RefPC.csv 
+
+uname -a
+Linux nebula 3.10.0-327.36.3.el7.x86_64 #1 SMP Mon Oct 24 16:09:20 UTC 2016 x86_64 x86_64 x86_64 GNU/Linux
+
+cat /proc/meminfo 2>/dev/null | grep MemTotal
+MemTotal:       16252008 kB
+
+cat /proc/cpuinfo 2>/dev/null | tail -n 25
+vendor_id	: GenuineIntel
+cpu family	: 6
+model		: 44
+model name	: Intel(R) Xeon(R) CPU           X5650  @ 2.67GHz
+stepping	: 2
+microcode	: 0x1a
+cpu MHz		: 2659.990
+cache size	: 12288 KB
+physical id	: 0
+siblings	: 6
+core id		: 10
+cpu cores	: 6
+apicid		: 20
+initial apicid	: 20
+fpu		: yes
+fpu_exception	: yes
+cpuid level	: 11
+wp		: yes
+flags		: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 cx16 xtpr pdcm pcid dca sse4_1 sse4_2 popcnt aes lahf_lm ida arat dtherm tpr_shadow vnmi flexpriority ept vpid
+bogomips	: 5319.78
+clflush size	: 64
+cache_alignment	: 64
+address sizes	: 40 bits physical, 48 bits virtual
+power management:
+
+
+sysctl -a hw 2>/dev/null | grep -E "ncpu|byteorder|memsize|cpufamily|cachesize|mmx|sse|machine|model" | grep -v ipv6
+
+cat ~/.vwrc 2>/dev/null
+[general]
+# Set default_num_threads to 28 as this is the number of logical cores on a single NEB node on Nebula
+default_num_threads = 28
+write_pool_size = 42
+system_cache_size = 32250000000
+
+# Set default_num_threads to 16 as this is the number of logical cores on a single sandyb node on Midway
+#default_num_threads = 16
+#write_pool_size = 30
+#system_cache_size = 8000000000
+
+#Broadwell Node config:
+#default_num_threads = 28
+#write_pool_size = 32
+#system_cache_size = 16000000000
+
+# AMD Node config:
+#default_num_threads = 64
+#write_pool_size = 40
+#system_cache_size = 50000000000
+
+# ivyb Node Config
+#default_num_threads = 20
+#write_pool_size = 30
+#system_cache_size = 16000000000
+
+# bigmem Node Config
+#default_num_threads = 16
+#write_pool_size = 21
+#system_cache_size = 50000000000
+
+
+
+Vision Workbench log started at 2018-02-12 14:15:10.
+
+2018-02-12 14:15:10 {0} [ console ] : Will use datum (for CSV files): Geodetic Datum --> Name: D_MARS  Spheroid: MARS  Semi-major axis: 3396190  Semi-minor axis: 3396190  Meridian: Reference Meridian at 0
+2018-02-12 14:15:10 {0} [ console ] : Computing the intersection of the bounding boxes of the reference and source points.
+2018-02-12 14:15:10 {0} [ console ] : Guessing file NE_Syrtis_100m_aate_ascii.csv to be in latitude,longitude,height above datum (meters) format.
+2018-02-12 14:15:11 {0} [ console ] : Guessing file NE_Syrtis_RefPC.csv to be in latitude,longitude,height above datum (meters) format.
+2018-02-12 14:15:11 {0} [ console ] : Reference box: (Origin: (76.9416, 17.3308) width: 0.618661 height: 1.08875)
+2018-02-12 14:15:11 {0} [ console ] : Source box:    (Origin: (76.2873, 16.6302) width: 1.82536 height: 2.32879)
+2018-02-12 14:15:11 {0} [ console ] : Intersection:  (Origin: (76.9416, 17.3308) width: 0.618661 height: 1.08875)
+2018-02-12 14:15:11 {0} [ console ] : Intersection of bounding boxes took 1.02805 [s]
+2018-02-12 14:15:11 {0} [ console ] : Reading: NE_Syrtis_100m_aate_ascii.csv
+2018-02-12 14:15:11 {0} [ console ] : Guessing file NE_Syrtis_100m_aate_ascii.csv to be in latitude,longitude,height above datum (meters) format.
+2018-02-12 14:15:11 {0} [ console ] : Loaded points: 160750
+2018-02-12 14:15:11 {0} [ console ] : Loading the reference point cloud took 0.303166 [s]
+2018-02-12 14:15:11 {0} [ console ] : Reading: NE_Syrtis_RefPC.csv
+2018-02-12 14:15:11 {0} [ console ] : Guessing file NE_Syrtis_RefPC.csv to be in latitude,longitude,height above datum (meters) format.
+2018-02-12 14:15:11 {0} [ console ] : Loaded points: 6032
+2018-02-12 14:15:11 {0} [ console ] : Loading the source point cloud took 0.107797 [s]
+2018-02-12 14:15:11 {0} [ console ] : Data shifted internally by subtracting: Vector3(712206,3.15047e+06,1.04183e+06)
+2018-02-12 14:15:11 {0} [ console ] : Building the reference cloud tree.
+2018-02-12 14:15:11 {0} [ console ] : Reference point cloud processing took 0.193734 [s]
+2018-02-12 14:15:11 {0} [ console ] : Filtering gross outliers
+2018-02-12 14:15:11 {0} [ console ] : Filtering gross outliers took 0.00529 [s]
+2018-02-12 14:15:11 {0} [ console ] : Reducing number of source points to 4119
+2018-02-12 14:15:11 {0} [ console ] : Number of errors: 4119
+2018-02-12 14:15:11 {0} [ console ] : Input: error percentile of smallest errors (meters): 16%: 28.3227, 50%: 45.6225, 84%: 58.7511
+2018-02-12 14:15:11 {0} [ console ] : Input: mean of smallest errors (meters): 25%: 24.6949, 50%: 32.4003, 75%: 38.2701, 100%: 47.2545
+2018-02-12 14:15:11 {0} [ console ] : Initial error computation took 0.001156 [s]
+2018-02-12 14:15:13 {0} [ console ] : Match ratio: 0.750182
+2018-02-12 14:15:13 {0} [ console ] : Alignment took 1.29774 [s]
+2018-02-12 14:15:13 {0} [ console ] : Maximum displacement of source points: 142.186 m
+2018-02-12 14:15:13 {0} [ console ] : Number of errors: 4119
+2018-02-12 14:15:13 {0} [ console ] : Output: error percentile of smallest errors (meters): 16%: 24.2185, 50%: 40.6094, 84%: 54.2423
+2018-02-12 14:15:13 {0} [ console ] : Output: mean of smallest errors (meters): 25%: 20.66, 50%: 27.9644, 75%: 33.7934, 100%: 42.5714
+2018-02-12 14:15:13 {0} [ console ] : Final error computation took 0.000944 [s]
+2018-02-12 14:15:13 {0} [ console ] : Alignment transform (rotation + translation, origin is planet center):
+    0.999999 -0.000332574  -0.00109693      2093.27
+ 0.000332861            1  0.000261303     -478.034
+  0.00109685 -0.000261668     0.999999    0.0648531
+           0            0            0            1
+2018-02-12 14:15:13 {0} [ console ] : Centroid of source points (Cartesian, meters): Vector3(712960,3.15041e+06,1.04152e+06)
+2018-02-12 14:15:13 {0} [ console ] : Centroid of source points (lat,lon,z): Vector3(17.8716,77.2484,-2347.5)
+2018-02-12 14:15:13 {0} [ console ] : 
+2018-02-12 14:15:13 {0} [ console ] : Translation vector (Cartesian, meters): Vector3(-97.4232,31.1525,-42.9509)
+2018-02-12 14:15:13 {0} [ console ] : Translation vector (North-East-Down, meters): Vector3(-43.6037,101.897,4.72912)
+2018-02-12 14:15:13 {0} [ console ] : Translation vector magnitude (meters): 110.935
+2018-02-12 14:15:13 {0} [ console ] : Translation vector (lat,lon,z): Vector3(-0.000736138,0.00180746,-4.72731)
+2018-02-12 14:15:13 {0} [ console ] : 
+2018-02-12 14:15:13 {0} [ console ] : Euler angles (degrees): Vector3(-0.0149925,-0.0628447,0.0190715)
+2018-02-12 14:15:13 {0} [ console ] : Axis of rotation and angle (degrees): Vector3(-0.22241,-0.932977,0.282998) 0.067362
+2018-02-12 14:15:13 {0} [ console ] : Writing: NE_Syrtis_100m_aate_ascii_pcAligned_DTM-transform.txt
+2018-02-12 14:15:13 {0} [ console ] : Writing: NE_Syrtis_100m_aate_ascii_pcAligned_DTM-inverse-transform.txt
+2018-02-12 14:15:13 {0} [ console ] : Writing: NE_Syrtis_100m_aate_ascii_pcAligned_DTM-trans_reference.csv
+2018-02-12 14:15:16 {0} [ console ] : Writing: NE_Syrtis_100m_aate_ascii_pcAligned_DTM-beg_errors.csv
+2018-02-12 14:15:16 {0} [ console ] : Writing: NE_Syrtis_100m_aate_ascii_pcAligned_DTM-end_errors.csv
+2018-02-12 14:15:17 {0} [ console ] : Writing: NE_Syrtis_100m_aate_ascii_pcAligned_DTM-iterationInfo.csv
+2018-02-12 14:15:17 {0} [ console ] : Saving to disk took 3.85122 [s]
