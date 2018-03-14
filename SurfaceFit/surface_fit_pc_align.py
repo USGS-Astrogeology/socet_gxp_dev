@@ -7,8 +7,7 @@ import subprocess
 import readline
 import pandas as pd
 import numpy as np
-from plio.io.io_gpf import read_gpf #3rd party library
-from plio.io.io_gpf import save_gpf #3rd party library
+from plio.io.io_bae import read_gpf, save_gpf
 
 
 ## Create an argument parser
