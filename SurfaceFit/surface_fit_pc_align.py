@@ -30,15 +30,32 @@ Align Tie Points from a stereopair to a DTM in Socet's ASCII format.
     parser.add_argument("referencePC",
                         help="The name of the file that contains the reference point cloud. File must be in pedr2tab or Socet ASCII DTM format.")
     parser.add_argument("referenceFormat",
-                        choices = ["table", "ascii_dtm"],
+                        # TODO: add support for "CSV" and "raster." The latter would refer to any ASP-supported raster format, such as GeoTIFF or ISIS3 cube
+                        choices = ["table", "ascii_dtm", "csv"],
                         type = str.lower, # effectively make this case insensitive
-                        help = """A flag indicating the format of the reference PC: "table" or "ascii_dtm".""")
+                        help = """A flag indicating the format of the reference PC. "table" is MOLA shot data output by the program "pedr2tab," "ascii_dtm" is a Socet ASCII DTM," and "CSV" is any pc_align compatible comma delimited text file.""")
     parser.add_argument("socet_dtm",
                         help = "The name of the file containing the Socet Set or GXP DTM to be aligned. Must be in ASCII format.")
     parser.add_argument("socet_gpf",
                         help = "The name of the Socet Ground Point File that corresponds to socet_dtm.")
     parser.add_argument("tfm_socet_gpf",
                         help = """Name to use for the output (transformed) ground point file. Must include ".gpf" extension.""")
+    parser.add_argument("--datum",
+                        nargs=1,
+                        default="D_MARS",
+                        choices=['D_MARS', 'D_MOON', 'MOLA', 'NAD27', 'NAD83', 'WGS72', 'WGS_1984'],
+                        help = """Use this datum for CSV files. Defaults to D_MARS for legacy compatibility.""")
+    parser.add_argument("--max-displacement",
+                        nargs=1,
+                        default='300',
+                        # The float needs to be converted to a string for subprocess.run()
+                        #  but forcing it to be a float in argparse is a lazy way of
+                        #  minimizing chances the user passes something invalid
+                        type=float,
+                        help="""Maximum expected displacement of source points as result of alignment, in meters. Used for removing gross outliers from source point cloud. Defaults to 300 meters for legacy compatibility.""")
+    parser.add_argument('pc_align_args',
+                        nargs = argparse.REMAINDER,
+                        help = """Additional arguments that will be passed directly to pc_align.""")
     args = parser.parse_args()
     return args
 
@@ -69,17 +86,17 @@ def ascii_dtm2csv(ascii_dtm, outname):
 
 ### Main Loop ###
 ## Parse arguments
-command_line_args = parse_arguments()
+args = parse_arguments()
 
-print(command_line_args)
+print(args)
 
-referencePC = command_line_args.referencePC
+referencePC = args.referencePC
 ref_basename = os.path.splitext(referencePC)[0]
-socet_gpf = command_line_args.socet_gpf
+socet_gpf = args.socet_gpf
 socet_gpf_basename = os.path.splitext(socet_gpf)[0]
-socet_dtm = command_line_args.socet_dtm
+socet_dtm = args.socet_dtm
 socet_dtm_basename = os.path.splitext(socet_dtm)[0]
-tfm_socet_gpf = command_line_args.tfm_socet_gpf
+tfm_socet_gpf = args.tfm_socet_gpf
 
 if tfm_socet_gpf[-4:] != ".gpf":
     print("""USER ERROR: Output file name must include ".gpf" extension""")
@@ -87,7 +104,7 @@ if tfm_socet_gpf[-4:] != ".gpf":
 
 ## Logic to figure out what to do with referencePC depending on format
 
-if command_line_args.referenceFormat == "table":
+if args.referenceFormat == "table":
     ### "table" is the fixed-length ascii table output by pedr2tab
     ref_dtm = (ref_basename + "_RefPC.csv")
     ## Ingest to pandas dataframe
@@ -98,13 +115,18 @@ if command_line_args.referenceFormat == "table":
                                   "areod_lat", "areoid_rad", "shot",
                                   "pkt", "orbit", "gm"])
     ref_df = ref_df.apply(pd.to_numeric)
-     ### Extract lat/lon/topo columns and write out to CSV
+    ### Extract ographic lat, lon, topo columns and write out to CSV
+    ### NOTE: pc_align doesn't understand that elevation values are relative to a geoid
+    ### This is here for legacy compatibility ONLY
+    print("\n\n *** WARNING: Using MOLA heights above geoid ***\n\n")
     ref_df.to_csv(path_or_buf=ref_dtm, header=False, index=False,
                   columns=['areod_lat','long_East','topography'])
-elif command_line_args.referenceFormat == "ascii_dtm":
+elif args.referenceFormat == "ascii_dtm":
     ### "ascii_dtm" is a Socet Set format ASCII DTM
     ### Convert to CSV and swap order of lat/long columns
     ascii_dtm2csv(referencePC, ref_dtm)
+elif args.referenceFormat == "csv":
+    ref_dtm = referencePC
 else:
     ## If argparse has done its job, we should never fall through to this point
     print("PROGRAMMER ERROR: Unable to determine reference elevation format")
@@ -133,7 +155,35 @@ tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
 
 # print(tp_df.head())
 
-## Write the lat/long/height values to a CSV (compatible with pc_align)
+align_prefix = (socet_dtm_basename + '_pcAligned_DTM')
+gpf_align_prefix = (socet_dtm_basename + '_pcAligned_gpfTies')
+
+## Collect arguments for pc_align subprocess into a list
+align_args = ["pc_align",
+                "--max-displacement", str(args.max_displacement[0]),
+                "--datum", args.datum,
+                "-o", align_prefix,
+                "--save-inv-trans"]
+
+## If the user passed additional arguments for pc_align, extend align_args to include them
+if args.pc_align_args:
+    align_args.extend(args.pc_align_args)
+
+## Source and reference files must come last in call to pc_align
+align_args.extend([socet_dtm_csv, ref_dtm])
+print(align_args)
+
+try:
+    print("Running pc_align on " + socet_dtm_csv + " and " + ref_dtm)
+    run_align = subprocess.run( align_args,
+                                check=True,
+                                stderr=subprocess.STDOUT,
+                                encoding='utf-8')
+except subprocess.CalledProcessError as e:
+    print(e)
+    sys.exit(1)
+    
+## Write the lat/long/height values of the tie points to a CSV (compatible with pc_align)
 tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.csv'),
              header=False,
              index=False,
@@ -141,44 +191,24 @@ tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.csv'),
                       'long_X_East',
                       'ht'])
 
-## Write list of pointIDs of the tiepoints to a file
-## Included for legacy compatibility, not actually used
-tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.tiePointIds.txt'),
-             sep=' ', header=False,
-             index=False,
-             columns=['point_id'])
-
-align_prefix = (socet_dtm_basename + '_pcAligned_DTM')
-gpf_align_prefix = (socet_dtm_basename + '_pcAligned_gpfTies')
-
-### System call to run pc_align on ASCII DTM
-print("Running pc_align on " + socet_dtm_csv + " and " + ref_dtm)
-run_pc_align = subprocess.run(["pc_align",
-                "--max-displacement", "300",
-                "--datum","D_MARS",
-                "-o", align_prefix,
-                "--save-inv-trans",
-                socet_dtm_csv, ref_dtm],
-                              check=True,
-                              stdout=subprocess.PIPE,
-                              encoding='utf-8')
-print(run_pc_align.stdout)
-
-## System call to apply transform from previous pc_align run to tiepoints CSV
-print("Calling pc_align with 0 iterations to apply transform from previous run to Tie Points from GPF")
-apply_transform = subprocess.run(["pc_align",
+## Collect pc_align arguments to apply transform into a list
+apply_tfm_args = ["pc_align",
                 "--initial-transform",(align_prefix + '-transform.txt'),
                 "--num-iterations","0",
                 "--max-displacement","-1",
-                "--datum", "D_MARS",
+                "--datum", args.datum,
                 "--save-inv-trans",
                 "-o", gpf_align_prefix ,
                 (socet_gpf_basename + '.csv'),
-                ref_dtm ],
+                ref_dtm ]
+
+
+## Apply transform from previous pc_align run to tie points CSV
+print("Calling pc_align with 0 iterations to apply transform from previous run to Tie Points from GPF")
+run_apply_tfm = subprocess.run(apply_tfm_args,
                                  stdout=subprocess.PIPE,
                                  encoding='utf-8')
-print(apply_transform.stdout)
-
+print(run_apply_tfm.stdout)
 
 
 ## mergeTransformedGPFTies
@@ -194,7 +224,8 @@ tfm_tp_df = pd.DataFrame(t, index=tfm_index, columns=['lat_Y_North',
                                                       'ht'])
 tfm_tp_df = tfm_tp_df.apply(pd.to_numeric)
 
-## Update the original Tie Point DataFrame with the transformed lat/long/z values from pc_align
+
+## Update the original Tie Point data frame with the transformed lat/long/z values from pc_align
 tp_df.update(tfm_tp_df)
 
 # ### Convert long from 0-360 to +/-180 and convert lat/long back to radians
@@ -224,7 +255,7 @@ gpf_df.loc[non_tp_mask, 'known'] = 0
 ## Change transformed Tie Points to XYZ Control, sigmas = 1.0, residuals = 0.0
 print("Changing transformed Tiepoints to XYZ Control with sigmas = 1 and residuals = 0")
 gpf_df.loc[tfm_tp_mask, 'known'] = 3
-gpf_df.loc[tfm_tp_mask, 'sigma0':'sigma2'] = 1.0
+gpf_df.loc[tfm_tp_mask, 'sig0':'sig2'] = 1.0
 gpf_df.loc[tfm_tp_mask, 'res0':'res2'] = 0.0
 
 ## Convert the 'stat' and 'known' columns to unsigned integers
@@ -234,3 +265,10 @@ gpf_df.stat = pd.to_numeric(gpf_df['stat'], downcast = 'unsigned')
 
 print("Writing transformed GPF to file: " + tfm_socet_gpf)
 save_gpf(gpf_df, tfm_socet_gpf)
+
+## Write list of pointIDs of the tiepoints to a file
+## Included for legacy compatibility, not actually used for anything
+tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.tiePointIds.txt'),
+             sep=' ', header=False,
+             index=False,
+             columns=['point_id'])
