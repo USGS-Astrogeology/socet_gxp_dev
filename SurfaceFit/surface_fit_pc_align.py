@@ -23,6 +23,9 @@ The transformed latitude, longitude, and height values from the Tie Points are t
 changed from "1" (Tie Point) to "3" (XYZ Control). Non-Tie Points from the original GPF are written to the new GPF with their "known" flags changed to "1." 
 Tie Points from the original GPF that were not active ("stat" = 0) are copied "as-is" into the new GPF. The output GPF preserves the order of the ground points from the original GPF.
 
+If it is desired to update all active points in the input GPF, use the '--all-points' flag. The modified points will still have their "known" flag set to "3" (XYZ Control) in the 
+output GPF.
+
 The script requires the "plio" Python library (https://github.com/USGS-Astrogeology/plio) in order to read/write GPFs. 
 The Ames Stereo Pipeline program pc_align must be available in the user's path or somewhere else where Python can find it. 
 More information about the Ames Stereo Pipeline is available on the project's Git repository: https://github.com/NeoGeographyToolkit/StereoPipeline""",
@@ -50,6 +53,7 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
                         help = "The name of the file containing the Socet Set or GXP DTM to be aligned. Must be in ASCII format.")
     parser.add_argument("socet_format",
                         choices = ["ascii_dtm", "csv", "raster"],
+                        type = str.lower, # effectively make this case insensitive
                         help = """A flag indicating the format of the Socet DTM. "ascii_dtm" is a Socet ASCII DTM,"
                                   "CSV" is any pc_align compatible comma delimited text file, 
                                   and "raster" is any pc_align compatible raster format, such as GeoTIFF.""")
@@ -58,6 +62,9 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
                         help = "The name of the Socet Ground Point File that will be updated using the transform that was calculated for socet_dtm.")
     parser.add_argument("tfm_socet_gpf",
                         help = """Name to use for the output (transformed) ground point file. Must include ".gpf" extension.""")
+    parser.add_argument("--all-points",
+                        action='store_true',
+                        help = "This flag will force updating of all active (stat = 1) points in socet_gpf, not just tie points.")
     refshape = parser.add_mutually_exclusive_group(required=True)
     refshape.add_argument("--datum",
                         nargs=1,
@@ -68,14 +75,6 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
                           metavar=('semi-major-axis','semi-minor-axis'),
                           type=float,
                           help="""Semi-major and semi-minor axes, expressed in meters, that define the ellipsoid that heights in the input GPF file and any other input CSV files are referenced to.""")
-    # parser.add_argument("--max-displacement",
-    #                     nargs=1,
-    #                     default='300',
-    #                     # The float needs to be converted to a string for subprocess.run()
-    #                     #  but forcing it to be a float in argparse is a lazy way of
-    #                     #  minimizing chances the user passes something invalid
-    #                     type=float,
-    #                     help="""Maximum expected displacement of source points as result of alignment, in meters. Used for removing gross outliers from source point cloud. Defaults to 300 meters for legacy compatibility.""")
     parser.add_argument('pc_align_args',
                         nargs = argparse.REMAINDER,
                         help = """Additional arguments that will be passed directly to pc_align. At a minimum, this will include "--max-displacement." """)
@@ -171,7 +170,6 @@ else:
     print("PROGRAMMER ERROR: Unable to determine Socet elevation format")
     sys.exit(1)
 
-
     
 ## Read in the Socet ground point file using plio's read_gpf()
 gpf_df = read_gpf(socet_gpf)
@@ -179,9 +177,12 @@ gpf_df = read_gpf(socet_gpf)
 gpf_df.set_index('point_id', drop=False, inplace=True)
 
 
-## Create copy of tie points (known = 0) that are turned on (stat = 1)
-tp_df = gpf_df[(gpf_df.known == 0) & (gpf_df.stat == 1)].copy()
-# print(tp_df.head())
+## If user passed "--all-points" option, copy all active points to new data frame
+##  Otherwise, only copy tie points (known == 0) that are active
+if args.all_points is True:
+    tp_df =  gpf_df[(gpf_df.stat == 1)].copy()
+else:
+    tp_df = gpf_df[(gpf_df.known == 0) & (gpf_df.stat == 1)].copy()
 
 # Convert lat/longs from radians to degrees
 print("Converting Tie Point lat/long from radians to degrees")
@@ -196,8 +197,6 @@ gpf_align_prefix = (socet_dtm_basename + '_pcAligned_gpfTies')
 
 ## Collect arguments for pc_align subprocess into a list
 align_args = ["pc_align",
-                # "--max-displacement", str(args.max_displacement[0]),
-                # "--datum", args.datum,
                 "-o", align_prefix,
                 "--save-inv-trans"]
 
@@ -240,7 +239,6 @@ apply_tfm_args = ["pc_align",
                 "--initial-transform",(align_prefix + '-transform.txt'),
                 "--num-iterations","0",
                 "--max-displacement","-1",
-                # "--datum", args.datum,
                 "--save-inv-trans",
                 "-o", gpf_align_prefix ,
                 (socet_gpf_basename + '.csv'),
@@ -283,27 +281,25 @@ tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
 tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
 
 
-print("Updating GPF DataFrame with Transformed lat/long/z values from pc_align")
+print("Updating GPF data frame  with Transformed lat/long/z values from pc_align")
 gpf_df.update(tp_df)
-
-## Build boolean masks of gpf_df to enable selective updating of point types
-## non-tie point mask
-non_tp_mask = (gpf_df['known'] > 0)
-## transformed tie point mask
-tfm_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] == 0))
-
 
 print("Updating ground point types in output GPF")
 
-## Change non-Tie Points to Tie Point
-print("Changing active non-Tiepoints to Tiepoints")
-gpf_df.loc[non_tp_mask, 'known'] = 0
-
-## off tie point mask
-## no-op
+## Build boolean masks of gpf_df to enable selective updating of point types
+## transformed tie point mask
+if args.all_points is True:
+    tfm_tp_mask = (gpf_df['stat'] == 1)
+else:
+    ## non-tie point mask
+    non_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] > 0))
+    tfm_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] == 0))
+    ## Change non-Tie Points to Tie Point
+    print("Changing active non-Tiepoints to Tiepoints")
+    gpf_df.loc[non_tp_mask, 'known'] = 0
 
 ## Change transformed Tie Points to XYZ Control, sigmas = 1.0, residuals = 0.0
-print("Changing transformed Tiepoints to XYZ Control with sigmas = 1 and residuals = 0")
+print("Changing transformed points to XYZ Control with sigmas = 1 and residuals = 0")
 gpf_df.loc[tfm_tp_mask, 'known'] = 3
 gpf_df.loc[tfm_tp_mask, 'sig0':'sig2'] = 1.0
 gpf_df.loc[tfm_tp_mask, 'res0':'res2'] = 0.0
@@ -316,7 +312,7 @@ gpf_df.stat = pd.to_numeric(gpf_df['stat'], downcast = 'unsigned')
 print("Writing transformed GPF to file: " + tfm_socet_gpf)
 save_gpf(gpf_df, tfm_socet_gpf)
 
-## Write list of pointIDs of the tiepoints to a file
+## Write list of pointIDs of the transformed tiepoints to a file
 ## Included for legacy compatibility, not actually used for anything
 tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.tiePointIds.txt'),
              sep=' ', header=False,
