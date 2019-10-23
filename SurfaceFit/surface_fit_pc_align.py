@@ -11,7 +11,7 @@ from plio.io.io_bae import read_gpf, save_gpf
 
 
 ## Create an argument parser
-def parse_arguments():
+def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
                                      description = """This script aligns Tie Points from a Socet Set/Socet GXP Ground Point File (GPF) to a reference elevation data set 
 by acting as a thin wrapper around the 'pc_align' program from the NASA Ames Stereo Pipeline. 
@@ -46,9 +46,9 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
                         choices = ["ascii_dtm", "csv", "raster", "table"],
                         type = str.lower, # effectively make this case insensitive
                         help = """A flag indicating the format of the reference PC. "ascii_dtm" is a Socet ASCII DTM,"
-                                  "CSV" is any pc_align compatible comma delimited text file, 
-                                  and "raster" is any pc_align compatible raster format, such as GeoTIFF.
-                                  "table" indicates the tabular MOLA topography data output by pedr2tab and is included for legacy compatibility.""")
+                                  "CSV" is any pc_align-compatible comma delimited text file, 
+                                  and "raster" is any pc_align-compatible raster format, such as GeoTIFF.
+                                  "table" indicates the tabular MOLA topography data output by pedr2tab and is supported for legacy compatibility.""")
     parser.add_argument("socet_dtm",
                         help = "The name of the file containing the Socet Set or GXP DTM to be aligned. Must be in ASCII format.")
     parser.add_argument("socet_format",
@@ -64,7 +64,7 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
                         help = """Name to use for the output (transformed) ground point file. Must include ".gpf" extension.""")
     parser.add_argument("--all-points",
                         action='store_true',
-                        help = "This flag will force updating of all active (stat = 1) points in socet_gpf, not just tie points.")
+                        help = "This flag will force updating of all active (stat = 1) points in socet_gpf, not just tie points (known = 0).")
     refshape = parser.add_mutually_exclusive_group(required=True)
     refshape.add_argument("--datum",
                         nargs=1,
@@ -97,224 +97,302 @@ def ascii_dtm2csv(ascii_dtm, outname):
     outname : str
               path to the output CSV
 
+    Returns
+    -------
+    int : success value
+          0 = success, 1 = errors
+
     """
+    
     d = np.genfromtxt(ascii_dtm, skip_header=14, dtype='unicode')
     ref_df = pd.DataFrame(d, columns=["long","lat","z"])
     ref_df = ref_df.apply(pd.to_numeric)
 
     ## Extract lat/long/z and write out CSV. Note swapped lat/long columns
     ref_df.to_csv(path_or_buf=outname, header=False, index=False, columns=['lat','long','z'])
-    return outname
     
+    return
+    
+def pedrtab2csv(table, outname):
+    """
+    Read a MOLA PEDR table file into a pandas data frame,
+    write out a CSV with planetographic latitude, longitude, topography columns.
+    A headerless CSV with column order of lat,long,height is default format for pc_align.
+    
+    NOTE: pc_align doesn't understand that elevation values are relative to a geoid
+    This function is here for legacy compatibility ONLY
 
-### Main Loop ###
-## Parse arguments
-args = parse_arguments()
 
-print(args)
+    Parameters
+    ----------
+    table : str
+            path to the input MOLA PEDR table from pedr2tab
 
-ref_dtm = args.ref_dtm
-ref_basename = os.path.splitext(ref_dtm)[0]
-socet_gpf = args.socet_gpf
-socet_gpf_basename = os.path.splitext(socet_gpf)[0]
-socet_dtm = args.socet_dtm
-socet_dtm_basename = os.path.splitext(socet_dtm)[0]
-tfm_socet_gpf = args.tfm_socet_gpf
+    outname : str
+              path to the output CSV
 
-if tfm_socet_gpf[-4:] != ".gpf":
-    print("""USER ERROR: Output file name must include ".gpf" extension""")
-    sys.exit(1)
+    Returns
+    -------
+    int : success value
+          0 = success, 1 = errors
+                
 
-## Logic to figure out what to do with ref_dtm depending on format
-
-if args.ref_format == "table":
-    ### "table" is the fixed-length ascii table output by pedr2tab
-    ref_dtm = (ref_basename + "_RefPC.csv")
-    ## Ingest to pandas dataframe
-    d = np.genfromtxt(ref_dtm, skip_header=2, dtype='unicode')
-    ref_df = pd.DataFrame(d, columns=["long_East", "lat_North", "topography",
-                                  "MOLArange", "planet_rad", "c",
-                                  "A",  "offndr",  "EphemerisTime",
-                                  "areod_lat", "areoid_rad", "shot",
-                                  "pkt", "orbit", "gm"])
+    """
+    
+    # pedr2tab can return different combinations of columns depending on user input,
+    #  so grab all of them
+    columns = np.genfromtxt(table, max_rows = 1, dtype='unicode')
+    
+    d = np.genfromtxt(table, skip_header=2, dtype='unicode')
+    ref_df = pd.DataFrame(d, columns=columns)
     ref_df = ref_df.apply(pd.to_numeric)
-    ### Extract ographic lat, lon, topo columns and write out to CSV
-    ### NOTE: pc_align doesn't understand that elevation values are relative to a geoid
-    ### This is here for legacy compatibility ONLY
-    print("\n\n *** WARNING: Using MOLA heights above geoid ***\n\n")
-    ref_df.to_csv(path_or_buf=ref_dtm, header=False, index=False,
+    
+    ### Assume ographic lat, lon, topo columns exist
+    ref_df.to_csv(path_or_buf=outname, header=False, index=False,
                   columns=['areod_lat','long_East','topography'])
-elif args.ref_format == "ascii_dtm":
-    ### "ascii_dtm" is a Socet Set format ASCII DTM
-    ### Convert to CSV and swap order of lat/long columns
-    ref_dtm_csv = (ref_basename + "_RefPC.csv")
-    ref_dtm = ascii_dtm2csv(ref_dtm, ref_dtm_csv)
-elif (args.ref_format == "csv") or (args.ref_format == "raster"):
-    pass
-else:
-    ## If argparse has done its job, we should never fall through to this point
-    print("PROGRAMMER ERROR: Unable to determine reference elevation format")
-    sys.exit(1)
+    return
+
+
+def run_pc_align(args):
+    """
+    Use subprocess to call the external program, pc_align. Relies on
+    pc_align to decide if arguments are valid or not.
+    Pipe STDERR to STDOUT.
+
+
+    Parameters
+    ----------
+    args : list
+           list of arguments to be passed to pc_align
+
+    """
+    
+    align_args = ["pc_align"]
+    align_args.extend(args)
+    run_align = subprocess.run(align_args,check=True,stderr=subprocess.STDOUT,encoding='utf-8')
+
+    return run_align
+
+def update_gpf(gpf_df,tp_df,all_points,outname):
+    """
+    Update a GPF DataFrame with new lat/long/height values from another DataFrame,
+    Change point types based on user input, and set sigmas of updated points == 1 meter.
+
+
+    Parameters
+    ----------
+    gpf_df : pd.DataFrame
+             Pandas DataFrame of a Socet GPF file. Format obtained from read_gpf(),
+             and subsequently indexed on point_id field.
+
+    tp_df : pd.DataFrame
+            Pandas DataFrame of a Socet GPF file. Format obtained from read_gpf(),
+            and subsequently indexed on point_id field. Should be (at least) a 
+            subset of gpf_df
+
+    all_points : boolean
+                 If True, update all active points in gpf_df, regardless of point type.
+                 If False, update only active tiepoints in gpf_df, and then change 
+                     active non-tiepoints to tiepoints.
+
+    outname: str
+                   Path to the output GPF
+
+    Returns
+    -------
+    int : success value
+          0 = success, 1 = errors
+                
+
+    """
+
+    print("Updating GPF data frame with Transformed lat/long/z values from pc_align")
+    gpf_df.update(tp_df)
+
+    print("Updating ground point types in output GPF")
+
+    ## Build boolean masks of gpf_df to enable selective updating of point types
+    ## transformed tie point mask
+    if all_points is True:
+        tfm_tp_mask = (gpf_df['stat'] == 1)
+    else:
+        ## non-tie point mask
+        non_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] > 0))
+        tfm_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] == 0))
+        ## Change non-Tie Points to Tie Point
+        print("Changing active non-Tiepoints to Tiepoints")
+        gpf_df.loc[non_tp_mask, 'known'] = 0
+
+    ## Change transformed Tie Points to XYZ Control, sigmas = 1.0, residuals = 0.0
+    print("Changing transformed points to XYZ Control with sigmas = 1 and residuals = 0")
+    gpf_df.loc[tfm_tp_mask, 'known'] = 3
+    gpf_df.loc[tfm_tp_mask, 'sig0':'sig2'] = 1.0
+    gpf_df.loc[tfm_tp_mask, 'res0':'res2'] = 0.0
+
+    ## Convert the 'stat' and 'known' columns to unsigned integers
+    gpf_df.known = pd.to_numeric(gpf_df['known'], downcast = 'unsigned')
+    gpf_df.stat = pd.to_numeric(gpf_df['stat'], downcast = 'unsigned')
+
+    print("Writing transformed GPF to file: " + outname)
+    save_gpf(gpf_df, outname)
+
+    return
+
 
     
-## Logic to figure out what to do with socet_dtm depending on format
-if args.socet_format == "ascii_dtm":
-    ### "ascii_dtm" is a Socet Set format ASCII DTM
-    ### Convert to CSV and swap order of lat/long columns
-    socet_dtm_csv = (socet_dtm_basename + ".csv")
-    socet_dtm = ascii_dtm2csv(socet_dtm,socet_dtm_csv)
-elif (args.socet_format == "csv") or (args.socet_format == "raster"):
-    pass
-else:
-    ## If argparse has done its job, we should never fall through to this point
-    print("PROGRAMMER ERROR: Unable to determine Socet elevation format")
-    sys.exit(1)
+def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
+         all_points,datum,radii,pc_align_args):
 
+    ref_basename = os.path.splitext(ref_dtm)[0]
+    socet_dtm_basename = os.path.splitext(socet_dtm)[0]
+
+    if tfm_socet_gpf[-4:] != ".gpf":
+        print("""USER ERROR: Output file name must include ".gpf" extension""")
+        sys.exit(1)
+
+
+    ## Logic to figure out what to do with ref_dtm depending on format
+    if ref_format == "table":
+        print("\n\n *** WARNING: Using MOLA heights above geoid ***\n\n")
+        ref_dtm_pc_align = (ref_basename + "_RefPC.csv")
+        pedrtab2csv(ref_dtm, ref_dtm_pc_align)
+    elif ref_format == "ascii_dtm":
+        ref_dtm_pc_align = (ref_basename + "_RefPC.csv")
+        ascii_dtm2csv(ref_dtm, ref_dtm_pc_align)
+    elif (ref_format == "csv") or (ref_format == "raster"):
+        ref_dtm_pc_align = ref_dtm
+    else:
+        ## If argparse has done its job, we should never fall through to this point
+        print("PROGRAMMER ERROR: Unable to determine reference elevation format")
+        sys.exit(1)
+
+
+    ## Logic to figure out what to do with socet_dtm depending on format
+    if socet_format == "ascii_dtm":
+        socet_dtm_pc_align = (socet_dtm_basename + ".csv")
+        ascii_dtm2csv(socet_dtm,socet_dtm_pc_align)
+    elif (socet_format == "csv") or (socet_format == "raster"):
+        socet_dtm_pc_align = socet_dtm
+    else:
+        ## If argparse has done its job, we should never fall through to this point
+        print("PROGRAMMER ERROR: Unable to determine Socet elevation format")
+        sys.exit(1)
+
+
+    ## Read in the Socet ground point file using plio's read_gpf()
+    gpf_df = read_gpf(socet_gpf)
+    # Set the index of the GPF dataframe to be the point_id column
+    gpf_df.set_index('point_id', drop=False, inplace=True)
+
+    ## If user passed "--all-points" option, copy *all active* points to new data frame
+    ##  Otherwise, copy active tie points (known == 0) only
+    ## Note that DataFrame is named "tp_df" regardless of whether it includes only tiepoints or not
+    if all_points:
+        tp_df =  gpf_df[(gpf_df.stat == 1)].copy()
+    else:
+        tp_df = gpf_df[(gpf_df.known == 0) & (gpf_df.stat == 1)].copy()
+
+    tp_df.lat_Y_North = np.degrees(tp_df.lat_Y_North)
+    tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
+
+    align_prefix = (socet_dtm_basename + '_pcAligned_DTM')
+    gpf_align_prefix = (socet_dtm_basename + '_pcAligned_gpfTies')
+
+
+    ## Build arguments list and perform alignment with pc_align
+    align_args = ["--save-inv-transformed-reference-points",
+                  "-o", align_prefix]
+    # Extend the list of arguments for pc_align to include the datum or radii as necessary
+    if datum is not None:
+        align_args.extend(["--datum", str(datum[0])])
+    elif radii is not None:
+        align_args.extend(["--semi-major-axis", str(radii[0]), "--semi-minor-axis", str(radii[1])])
+
+    # If the user passed additional arguments for pc_align, extend align_args to include them
+    if pc_align_args:
+        align_args.extend(pc_align_args)
+
+    # Extend the list to place point clouds at the end of the list of arguments for pc_align
+    align_args.extend([socet_dtm_pc_align, ref_dtm_pc_align])
+    print(align_args)
+
+    try:
+        print("Aligning " + socet_dtm_pc_align + " to " + ref_dtm_pc_align)
+        run_align = run_pc_align(align_args)
+        print(run_align.stdout)
+    except subprocess.CalledProcessError as e:
+        print(e)
+        sys.exit(1)
     
-## Read in the Socet ground point file using plio's read_gpf()
-gpf_df = read_gpf(socet_gpf)
-# Set the index of the GPF dataframe to be the point_id column
-gpf_df.set_index('point_id', drop=False, inplace=True)
+    ## Write out CSV (compatible with pc_align) containing lat/long/height of points to be updated
+    socet_gpf_csv = ((os.path.splitext(socet_gpf)[0]) + '.csv')
+    tp_df.to_csv(path_or_buf=socet_gpf_csv,
+                 header=False,
+                 index=False,
+                 columns=['lat_Y_North','long_X_East','ht'])
 
 
-## If user passed "--all-points" option, copy all active points to new data frame
-##  Otherwise, only copy tie points (known == 0) that are active
-if args.all_points is True:
-    tp_df =  gpf_df[(gpf_df.stat == 1)].copy()
-else:
-    tp_df = gpf_df[(gpf_df.known == 0) & (gpf_df.stat == 1)].copy()
-
-# Convert lat/longs from radians to degrees
-print("Converting Tie Point lat/long from radians to degrees")
-tp_df.lat_Y_North = np.degrees(tp_df.lat_Y_North)
-tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
-
-
-# print(tp_df.head())
-
-align_prefix = (socet_dtm_basename + '_pcAligned_DTM')
-gpf_align_prefix = (socet_dtm_basename + '_pcAligned_gpfTies')
-
-## Collect arguments for pc_align subprocess into a list
-align_args = ["pc_align",
-                "-o", align_prefix,
-                "--save-inv-trans"]
-
-## Extend the list of arguments for pc_align to include the datum or radii as necessary
-if args.datum is not None:
-    align_args.extend(["--datum", str(args.datum[0])])
-elif args.radii is not None:
-    align_args.extend(["--semi-major-axis", str(args.radii[0]), "--semi-minor-axis", str(args.radii[1])])
-
+    ## Build arguments list and apply transformation to selected points from GPF using pc_align
     
-## If the user passed additional arguments for pc_align, extend align_args to include them
-if args.pc_align_args:
-    align_args.extend(args.pc_align_args)
+    ## Set num-iterations = 0 and turn off max-displacement (-1) because only going to apply existing transform
+    transform_matrix = (align_prefix + '-transform.txt')
+    apply_tfm_args = ["--initial-transform",transform_matrix,
+                      "--num-iterations","0",
+                      "--max-displacement","-1",
+                      "--save-transformed-source-points",
+                      "-o", gpf_align_prefix ]
+    ## Extend the list of arguments for pc_align to include the datum or radii as necessary
+    if datum is not None:
+        apply_tfm_args.extend(["--datum", str(datum[0])])
+    elif radii is not None:
+        apply_tfm_args.extend(["--semi-major-axis", str(radii[0]), "--semi-minor-axis", str(radii[1])])
 
-## Source and reference files must come last in call to pc_align
-align_args.extend([socet_dtm, ref_dtm])
-print(align_args)
+    ## Extend the list to place point clouds at the end of the list of arguments for pc_align
+    ## Note that we're specifying the same file as the reference and source clouds because pc_align requires 2 files as input,
+    ##  even if we're only applying a transform and not iterating
+    apply_tfm_args.extend([socet_gpf_csv,socet_gpf_csv])
 
-try:
-    print("Running pc_align on " + socet_dtm + " and " + ref_dtm)
-    run_align = subprocess.run( align_args,
-                                check=True,
-                                stderr=subprocess.STDOUT,
-                                encoding='utf-8')
-except subprocess.CalledProcessError as e:
-    print(e)
-    sys.exit(1)
-    
-## Write the lat/long/height values of the tie points to a CSV (compatible with pc_align)
-tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.csv'),
-             header=False,
-             index=False,
-             columns=['lat_Y_North',
-                      'long_X_East',
-                      'ht'])
-
-## Collect pc_align arguments to apply transform into a list
-## Set num-iterations = 0 and turn off max-displacement (-1) because only going to apply existing transform
-apply_tfm_args = ["pc_align",
-                "--initial-transform",(align_prefix + '-transform.txt'),
-                "--num-iterations","0",
-                "--max-displacement","-1",
-                "--save-inv-trans",
-                "-o", gpf_align_prefix ,
-                (socet_gpf_basename + '.csv'),
-                ref_dtm ]
-
-## Extend the list of arguments for pc_align to include the datum or radii as necessary
-if args.datum is not None:
-    apply_tfm_args.extend(["--datum", str(args.datum[0])])
-elif args.radii is not None:
-    apply_tfm_args.extend(["--semi-major-axis", str(args.radii[0]), "--semi-minor-axis", str(args.radii[1])])
+    print(apply_tfm_args)
 
 
-## Apply transform from previous pc_align run to tie points CSV
-print("Calling pc_align with 0 iterations to apply transform from previous run to Tie Points from GPF")
-run_apply_tfm = subprocess.run(apply_tfm_args,
-                                 stdout=subprocess.PIPE,
-                                 encoding='utf-8')
-print(run_apply_tfm.stdout)
+    ## Apply transform from previous pc_align run to tie points CSV
+    try:
+        print("Calling pc_align with 0 iterations to apply transform from previous run to Tie Points from GPF")
+        run_align = run_pc_align(apply_tfm_args)
+        # print(run_align.stdout)
+    except subprocess.CalledProcessError as e:
+        print(e)
+        sys.exit(1)
 
 
-## mergeTransformedGPFTies
-### Ingest the transformed tie points to a pandas data frame
-t = np.genfromtxt((gpf_align_prefix + '-trans_reference.csv'),
-                  delimiter=',',
-                  skip_header=3,
-                  dtype='unicode')
-id_list = tp_df['point_id'].tolist()
-tfm_index = pd.Index(id_list)
-tfm_tp_df = pd.DataFrame(t, index=tfm_index, columns=['lat_Y_North',
-                                                      'long_X_East',
-                                                      'ht'])
-tfm_tp_df = tfm_tp_df.apply(pd.to_numeric)
+    ## mergeTransformedGPFTies
+    ### Ingest the transformed tie points to a pandas data frame
+    t = np.genfromtxt((gpf_align_prefix + '-trans_source.csv'),delimiter=',',
+                      skip_header=3,dtype='unicode')
+    id_list = tp_df['point_id'].tolist()
+    tfm_index = pd.Index(id_list)
+    tfm_tp_df = pd.DataFrame(t, index=tfm_index, columns=['lat_Y_North','long_X_East','ht'])
+    tfm_tp_df = tfm_tp_df.apply(pd.to_numeric)
 
 
-## Update the original Tie Point data frame with the transformed lat/long/z values from pc_align
-tp_df.update(tfm_tp_df)
+    ## Update the original tiepoint DataFrame with the transformed lat/long/height values from pc_align
+    tp_df.update(tfm_tp_df)
 
-# ### Convert long from 0-360 to +/-180 and convert lat/long back to radians
-tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
-tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
+    # ### Convert long from 0-360 to +/-180 and convert lat/long back to radians
+    tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
+    tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
 
+    # Apply updates to the original GPF DataFrame, and save transformed GPF file
+    update_gpf(gpf_df,tp_df,all_points,tfm_socet_gpf)
 
-print("Updating GPF data frame  with Transformed lat/long/z values from pc_align")
-gpf_df.update(tp_df)
-
-print("Updating ground point types in output GPF")
-
-## Build boolean masks of gpf_df to enable selective updating of point types
-## transformed tie point mask
-if args.all_points is True:
-    tfm_tp_mask = (gpf_df['stat'] == 1)
-else:
-    ## non-tie point mask
-    non_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] > 0))
-    tfm_tp_mask = ((gpf_df['stat'] == 1) & (gpf_df['known'] == 0))
-    ## Change non-Tie Points to Tie Point
-    print("Changing active non-Tiepoints to Tiepoints")
-    gpf_df.loc[non_tp_mask, 'known'] = 0
-
-## Change transformed Tie Points to XYZ Control, sigmas = 1.0, residuals = 0.0
-print("Changing transformed points to XYZ Control with sigmas = 1 and residuals = 0")
-gpf_df.loc[tfm_tp_mask, 'known'] = 3
-gpf_df.loc[tfm_tp_mask, 'sig0':'sig2'] = 1.0
-gpf_df.loc[tfm_tp_mask, 'res0':'res2'] = 0.0
-
-## Convert the 'stat' and 'known' columns to unsigned integers
-gpf_df.known = pd.to_numeric(gpf_df['known'], downcast = 'unsigned')
-gpf_df.stat = pd.to_numeric(gpf_df['stat'], downcast = 'unsigned')
+    ## Write list of pointIDs of the transformed tiepoints to a file
+    ## Included for legacy compatibility, not actually used for anything
+    tp_df.to_csv(path_or_buf=((os.path.splitext(socet_gpf)[0]) + '.tiePointIds.txt'),
+                 sep=' ', header=False,
+                 index=False,
+                 columns=['point_id'])
 
 
-print("Writing transformed GPF to file: " + tfm_socet_gpf)
-save_gpf(gpf_df, tfm_socet_gpf)
-
-## Write list of pointIDs of the transformed tiepoints to a file
-## Included for legacy compatibility, not actually used for anything
-tp_df.to_csv(path_or_buf=(socet_gpf_basename + '.tiePointIds.txt'),
-             sep=' ', header=False,
-             index=False,
-             columns=['point_id'])
+if __name__ == "__main__":
+    args = parse_args()
+    sys.exit(main(**vars(args)))

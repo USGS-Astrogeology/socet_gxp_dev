@@ -20,10 +20,13 @@ def parse_args():
     parser.add_argument("input_ipf",
                         nargs='+',
                         help = "The name of the IPFs associated with the GPF.")
+    parser.add_argument("--no-convert",
+                        action='store_true',
+                        help = "When set, the lat_Y_North and long_X_East fields will be copied as-is into output file. By default, these fields are assumed to be in radians, and are converted to degrees.")
     args = parser.parse_args()
     return args
 
-def main(output_csv,input_gpf,input_ipf):
+def main(output_csv,input_gpf,input_ipf,no_convert):
     gpf_df = read_gpf(input_gpf)
 
     ipf_df = read_ipf(list(input_ipf))
@@ -32,9 +35,10 @@ def main(output_csv,input_gpf,input_ipf):
     merged_df = pd.merge(gpf_df, ipf_df, left_on='point_id', right_on='pt_id')
 
     columns = merged_df.columns.values.tolist()
-
-    merged_df['lat_Y_North'] = np.degrees(merged_df['lat_Y_North'])
-    merged_df['long_X_East'] = np.degrees(merged_df['long_X_East'])
+    
+    if not no_convert:
+        df['lat_Y_North'] = np.degrees(df['lat_Y_North'])
+        df['long_X_East'] = np.degrees(df['long_X_East'])
 
     merged_df.to_csv(path_or_buf=output_csv,header=True,index=False,columns=list(merged_df.columns))
 
