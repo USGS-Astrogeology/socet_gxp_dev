@@ -65,6 +65,10 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
     parser.add_argument("--all-points",
                         action='store_true',
                         help = "This flag will force updating of all active (stat = 1) points in socet_gpf, not just tie points (known = 0).")
+    parser.add_argument("--max-displacement",
+                        type=float,
+                        nargs=1,
+                        help="Maximum expected displacement of source points as result of alignment, in meters (after the initial guess transform is applied to the source points). Used for removing gross outliers in the source (movable) pointcloud.")
     refshape = parser.add_mutually_exclusive_group(required=True)
     refshape.add_argument("--datum",
                         nargs=1,
@@ -77,7 +81,7 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
                           help="""Semi-major and semi-minor axes, expressed in meters, that define the ellipsoid that heights in the input GPF file and any other input CSV files are referenced to.""")
     parser.add_argument('pc_align_args',
                         nargs = argparse.REMAINDER,
-                        help = """Additional arguments that will be passed directly to pc_align. At a minimum, this will include "--max-displacement." """)
+                        help = """Additional arguments that will be passed directly to pc_align.""")
     args = parser.parse_args()
     return args
 
@@ -241,7 +245,7 @@ def update_gpf(gpf_df,tp_df,all_points,outname):
 
     
 def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
-         all_points,datum,radii,pc_align_args):
+         all_points,datum,radii,max_displacement,pc_align_args):
 
     ref_basename = os.path.splitext(ref_dtm)[0]
     socet_dtm_basename = os.path.splitext(socet_dtm)[0]
@@ -300,7 +304,8 @@ def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
 
 
     ## Build arguments list and perform alignment with pc_align
-    align_args = ["--save-inv-transformed-reference-points",
+    align_args = ["--max-displacement", str(max_displacement[0]),
+                  "--save-inv-transformed-reference-points",
                   "-o", align_prefix]
     # Extend the list of arguments for pc_align to include the datum or radii as necessary
     if datum is not None:
