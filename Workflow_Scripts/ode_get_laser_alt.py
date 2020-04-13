@@ -67,9 +67,7 @@ Users must take care to pass input images that correspond to the desired output 
                             help = """Name of target body. "Mars" will return MOLA data and "Moon" will return LOLA data. """)
     targetMode.add_argument('--async', '-async',
                             action='store_true',
-                            # nargs = 1,
-                            # type = str.lower, # effectively make this case insensitive
-                            # metavar = "name@example.com",
+                            dest="_async",
                             help = """Submit query in asynchronous mode.""")
 
     targetMode.add_argument('--email', '-email',
@@ -251,7 +249,7 @@ if command_line_args.mode == 'target':
 
     ## Force use of --async when target is Mercury
     ## (There isn't an easy way to enforce this with argparse because async is otherwise optional)
-    if command_line_args.target == "mercury" and command_line_args.async is False:
+    if command_line_args.target == "mercury" and command_line_args._async is False:
         print("ERROR: Must use --async flag when target is Mercury")
         sys.exit(2)
         
@@ -286,7 +284,7 @@ if command_line_args.mode == 'target':
         else:
             payload['email'] = email
 
-    if command_line_args.async is True:
+    if command_line_args._async is True:
         payload['async'] = "t"
     else:
         payload['async'] = "f"
@@ -326,7 +324,7 @@ else:
 if command_line_args.mode == 'target':
     print("Results:")
     if gdsStatus == "SUCCESS":
-        if command_line_args.async is True:
+        if command_line_args._async is True:
             jobid = gdsResults['GDSResults']['JobId']
             print("   Status:  " + gdsStatus)
             print("   JobID:   " + jobid )
