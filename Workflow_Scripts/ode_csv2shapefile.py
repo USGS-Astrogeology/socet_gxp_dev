@@ -29,7 +29,8 @@
 #        altimeter pont shots. for more: http://oderest.rsl.wustl.edu/
 #
 #        For all bodies, Longitudes will be converted to -180 to 180.
-#        For Mars, latitudes are converted from ocentric to ographic. This
+#        For Mars, latitudes are converted from ocentric to ographic by
+#        default. One can now override this by sending --ocentric or the code
 #        can be easily changed below.
 #
 #_CALLS  List of calls:
@@ -37,6 +38,7 @@
 #_HIST
 #        Aug 17 2017 - Trent Hare (thare@usgs.gov) - original version
 #        Sep 14 2017 - added MLA support
+#        Apr 13 2020 - added --ocentric, only impacts Mars for now
 #
 #_LICENSE
 #        Public domain (unlicense)
@@ -80,22 +82,22 @@ def LonTo180(dlon):
 def parse_arguments():
     ## Parse commandline args with argparse
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
-             description="""Convert ODE created LOLA, MOLA, or MLA shot data to an Esri pointZ Shapefile.
+        description="""Convert ODE created MOLA, LOLA, or MLA shot data to an Esri pointZ Shapefile.
     The CSV is expected to be generated from the script ode_get_laser_alt.py""",
-             epilog="""EXAMPLES:
-             %(prog)s Mars --input ode_lolardr.csv 
-             %(prog)s Moon --input ode_molapedr.csv
-             %(prog)s Mercury --pattern "*_pts_csv.csv"
+        epilog="""EXAMPLES:
+        %(prog)s mars --ocentric --input ode_molardr.csv 
+        %(prog)s moon --input ode_lolapedr.csv
+        %(prog)s mercury --pattern "*_pts_csv.csv"
     
     """)
     
-    #parser.add_argument('product', choices=["lolardr","molapedr","mla"], 
-    #                    help="Specify desired product type: LOLA RDR or MOLA PEDR")
     parser.add_argument('target', choices=["mars","moon","mercury"], 
                         type = str.lower, 
-                        help="Specify which target: Mars, Moon, Mercury")
+                        help="Specify which target: mars, moon, or mercury")
+    parser.add_argument('--ocentric', action="store_true", default=False,
+                        help='set conversion to use ocentric latitudes, basically sets body as a sphere.')
     
-    ## User must specify exactly one of --coords or --raster
+    ## User must specify --input or --pattern, not both
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--input', nargs=1, metavar="file.csv",
                         help='an input ODE csv file as downloaded using ode_get_laser_alt.py.')
@@ -104,22 +106,22 @@ def parse_arguments():
                         help='pattern to find and run on many strings. Default pattern is "*_pts_csv.csv".')
     
     args = parser.parse_args()
-    return args
+    if args.target is None:
+        parser.print_usage()
+        parser.exit()
 
+    return args
 
 args = parse_arguments()
 target = args.target
+ocentric = args.ocentric
 
 if args.input is not None:
     files = args.input
 elif args.pattern is not None:
     pattern = args.pattern[0]
     files = glob.glob(pattern)
-else:
-    argparse.parser.print_usage()
-    sys.exit(1)
-    
-	
+
 if target == "mars":
     targetWKT = "Mars"
     majorRadius = 3396190.0 
@@ -159,9 +161,15 @@ elif target == "moon":
     orbitField = 'S' #not named correctly in the CSV, should be PRODUCT_SHOT_NUMBER
 else:
     print("Error: " + target + " currently not supported.")
-    argparse.parser.print_usage()
     sys.exit(1)
     
+# If user sets --ocentric then set minor radius to the major radius
+if (ocentric):
+    minorRadius = majorRadius
+    #just a helper for the WKT definition (not really needed)
+    if target == "mars":
+        targetWKT = "Mars_Sphere"
+
 #based on target and radius write out projection
 #
 #New prj for GXP
@@ -202,6 +210,7 @@ for input in files:
             lon180 = LonTo180(float(row[longField]))
             latOG = float(row[latField])
             #if Mars convert to ographic Latitudes
+            #note sending --ocentric will force a sphere and will nullify this call
             if target == "mars":
                 latOG = oc2og(latOG, majorRadius, minorRadius)
                 newl = '{0:.5f},{1:.5f},'.format(lon180, latOG)
@@ -261,4 +270,3 @@ for input in files:
         print (" -output shapefile file generated: "+ outshp)
     else: 
         print ("\n Shapefile not generated...something's wrong\n\n")
-     
