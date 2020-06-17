@@ -340,7 +340,7 @@ def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
     ## Build arguments list and apply transformation to selected points from GPF using pc_align
     
     ## Set num-iterations = 0 and turn off max-displacement (-1) because only going to apply existing transform
-    transform_matrix = (align_prefix + '-transform.txt')
+    transform_matrix = (align_prefix + '-inverse-transform.txt')
     apply_tfm_args = ["--initial-transform",transform_matrix,
                       "--num-iterations","0",
                       "--max-displacement","-1",
