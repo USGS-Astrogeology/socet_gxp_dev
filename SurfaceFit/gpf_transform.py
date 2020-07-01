@@ -32,6 +32,10 @@ More information about the Ames Stereo Pipeline is available on the project's Gi
     parser.add_argument("--all-points",
                         action='store_true',
                         help = "This flag will force updating of all active (stat = 1) points in the input GPF, not just tie points.")
+    parser.add_argument("--s_srs",
+                        help = """PROJ string describing the projected spatial reference system of the input GPF. If omitted, script assumes a geographic SRS with shape defined by --datum or --radius.""",
+                        nargs='?',
+                        type=str)
     refshape = parser.add_mutually_exclusive_group(required=True)
     refshape.add_argument("--datum",
                         nargs=1,
@@ -132,7 +136,7 @@ def update_gpf(gpf_df,tp_df,all_points,outname):
     return
 
 
-def main(socet_gpf,tfm_socet_gpf,all_points,transform_matrix,datum,radii):
+def main(socet_gpf,tfm_socet_gpf,all_points,transform_matrix,datum,radii,s_srs):
     
     if tfm_socet_gpf[-4:] != ".gpf":
         print("""USER ERROR: Output file name must include ".gpf" extension""")
@@ -151,8 +155,9 @@ def main(socet_gpf,tfm_socet_gpf,all_points,transform_matrix,datum,radii):
     else:
         tp_df = gpf_df[(gpf_df.known == 0) & (gpf_df.stat == 1)].copy()
 
-    tp_df.lat_Y_North = np.degrees(tp_df.lat_Y_North)
-    tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
+    if not s_srs:
+        tp_df.lat_Y_North = np.degrees(tp_df.lat_Y_North)
+        tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
     
     ## Write out CSV (compatible with pc_align) containing lat/long/height of points to be updated
     socet_gpf_csv = ((os.path.splitext(socet_gpf)[0]) + '.csv')
@@ -177,13 +182,16 @@ def main(socet_gpf,tfm_socet_gpf,all_points,transform_matrix,datum,radii):
     elif radii is not None:
         apply_tfm_args.extend(["--semi-major-axis", str(radii[0]), "--semi-minor-axis", str(radii[1])])
 
+    if s_srs:
+        apply_tfm_args.extend(["--csv-proj4", str(s_srs)])
+        apply_tfm_args.extend(["--csv-format", str('''2:easting 1:northing 3:height_above_datum''')])
+
     ## Extend the list to place point clouds at the end of the list of arguments for pc_align
     ## Note that we're specifying the same file as the reference and source clouds because pc_align requires 2 files as input,
     ##  even if we're only applying a transform and not iterating
     apply_tfm_args.extend([socet_gpf_csv,socet_gpf_csv])
 
     print(apply_tfm_args)
-
 
     ## Apply transform from previous pc_align run to tie points CSV
     try:
@@ -193,7 +201,6 @@ def main(socet_gpf,tfm_socet_gpf,all_points,transform_matrix,datum,radii):
     except subprocess.CalledProcessError as e:
         print(e)
         sys.exit(1)
-
 
     ## mergeTransformedGPFTies
     ### Ingest the transformed tie points to a pandas data frame
@@ -209,8 +216,9 @@ def main(socet_gpf,tfm_socet_gpf,all_points,transform_matrix,datum,radii):
     tp_df.update(tfm_tp_df)
 
     # ### Convert long from 0-360 to +/-180 and convert lat/long back to radians
-    tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
-    tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
+    if not s_srs:
+        tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
+        tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
 
     # Apply updates to the original GPF DataFrame, and save transformed GPF file
     update_gpf(gpf_df,tp_df,all_points,tfm_socet_gpf)

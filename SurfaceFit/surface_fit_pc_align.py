@@ -65,6 +65,10 @@ are aligned to MOLA shot data referenced to the geoid, the "--max-displacement" 
     parser.add_argument("--all-points",
                         action='store_true',
                         help = "This flag will force updating of all active (stat = 1) points in socet_gpf, not just tie points (known = 0).")
+    parser.add_argument("--s_srs",
+                        help = """PROJ string describing the projected spatial reference system of the input GPF. If omitted, script assumes a geographic SRS with shape defined by --datum or --radius.""",
+                        nargs='?',
+                        type=str)
     parser.add_argument("--max-displacement",
                         type=float,
                         nargs=1,
@@ -245,7 +249,7 @@ def update_gpf(gpf_df,tp_df,all_points,outname):
 
     
 def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
-         all_points,datum,radii,max_displacement,pc_align_args):
+         all_points,datum,radii,max_displacement,pc_align_args,s_srs):
 
     ref_basename = os.path.splitext(ref_dtm)[0]
     socet_dtm_basename = os.path.splitext(socet_dtm)[0]
@@ -296,8 +300,9 @@ def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
     else:
         tp_df = gpf_df[(gpf_df.known == 0) & (gpf_df.stat == 1)].copy()
 
-    tp_df.lat_Y_North = np.degrees(tp_df.lat_Y_North)
-    tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
+    if not s_srs:
+        tp_df.lat_Y_North = np.degrees(tp_df.lat_Y_North)
+        tp_df.long_X_East = ((360 + np.degrees(tp_df.long_X_East)) % 360)
 
     align_prefix = (socet_dtm_basename + '_pcAligned_DTM')
     gpf_align_prefix = (socet_dtm_basename + '_pcAligned_gpfTies')
@@ -352,6 +357,10 @@ def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
     elif radii is not None:
         apply_tfm_args.extend(["--semi-major-axis", str(radii[0]), "--semi-minor-axis", str(radii[1])])
 
+    if s_srs:
+        apply_tfm_args.extend(["--csv-proj4", str(s_srs)])
+        apply_tfm_args.extend(["--csv-format", str('''2:easting 1:northing 3:height_above_datum''')])
+
     ## Extend the list to place point clouds at the end of the list of arguments for pc_align
     ## Note that we're specifying the same file as the reference and source clouds because pc_align requires 2 files as input,
     ##  even if we're only applying a transform and not iterating
@@ -384,8 +393,9 @@ def main(ref_dtm,ref_format,socet_dtm,socet_format,socet_gpf,tfm_socet_gpf,
     tp_df.update(tfm_tp_df)
 
     # ### Convert long from 0-360 to +/-180 and convert lat/long back to radians
-    tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
-    tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
+    if not s_srs:
+        tp_df.lat_Y_North = np.radians(tp_df['lat_Y_North'])
+        tp_df.long_X_East = np.radians(((tp_df['long_X_East'] + 180) % 360) - 180)
 
     # Apply updates to the original GPF DataFrame, and save transformed GPF file
     update_gpf(gpf_df,tp_df,all_points,tfm_socet_gpf)
