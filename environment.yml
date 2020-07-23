@@ -1,0 +1,10 @@
+channels:
+   - conda-forge
+
+name: APPL-Tools
+dependencies:
+    - python=3
+    - plio
+    - gdal
+    - pysis
+    - requests
